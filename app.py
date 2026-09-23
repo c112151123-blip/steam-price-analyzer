@@ -56,12 +56,12 @@ def games():
 
 @app.route('/',methods=['GET','POST'])
 def index():
- init_db();form={'query':'','regions':DEFAULT,'min_price':'','max_price':''};result=None;hist=[];err=None
+ init_db();form={'query':'','min_price':'','max_price':''};result=None;hist=[];err=None
  if request.method=='POST':
   form={k:request.form.get(k,'').strip() for k in form}
   try:
-   app_id,name=resolve(form['query']);codes=list(dict.fromkeys(x for x in [z.strip().upper() for z in form['regions'].split(',')] if x in REGIONS))
-   if not codes:raise ValueError('沒有有效的地區代碼')
+   app_id,name=resolve(form['query'])
+   codes=DEFAULT.split(',')
    t=time.perf_counter();collect(app_id,name,codes);rows=latest(app_id);tw=next((r['twd_price'] for r in rows if r['country_code']=='TW'),None)
    for r in rows:r['diff_vs_taiwan']=((r['twd_price']-tw)/tw*100) if r['twd_price'] is not None and tw else None
    mn=float(form['min_price']) if form['min_price'] else 0;mx=float(form['max_price']) if form['max_price'] else None

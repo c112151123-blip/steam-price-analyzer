@@ -34,10 +34,6 @@
             </datalist>
           </div>
           <div class="form-group">
-            <label for="regions">查詢地區（逗號分隔）</label>
-            <input type="text" id="regions" name="regions" value="{{ form.regions }}">
-          </div>
-          <div class="form-group">
             <label for="min_price">最低價格 (TWD)</label>
             <input type="number" id="min_price" name="min_price" placeholder="0" value="{{ form.min_price }}">
           </div>
@@ -82,20 +78,6 @@
     <div class="results-section">
       <h2>價格歷史圖表</h2>
       <div class="chart-box"><canvas id="priceChart"></canvas></div>
-    </div>
-
-    <div class="results-section">
-      <h2>價格歷史</h2>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>時間</th><th>地區</th><th>原價</th><th>TWD</th><th>折扣</th></tr></thead>
-          <tbody>
-          {% for row in history %}
-            <tr><td>{{ row.recorded_at }}</td><td>{{ row.country_code }} {{ row.country_name }}</td><td>{{ '%.2f'|format(row.local_price) }} {{ row.currency }}</td><td>{% if row.twd_price is not none %}NT$ {{ '%.2f'|format(row.twd_price) }}{% else %}—{% endif %}</td><td>{{ row.discount_percent }}%</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
     </div>
 
     <script>
