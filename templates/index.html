@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steam 遊戲價格查詢系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+      .summary-card{background:rgba(0,0,0,.14);border:1px solid var(--border-color);border-radius:12px;padding:14px}
+      .summary-card .label{color:var(--muted-text);font-size:.85rem}.summary-card .value{color:var(--accent-color);font-size:1.25rem;font-weight:700;margin-top:5px}
+      .chart-box{height:420px;position:relative}.note{color:var(--muted-text);font-size:.9rem;line-height:1.6}
+      .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:rgba(102,192,244,.12);color:var(--accent-color);font-size:.82rem}
+      @media(max-width:900px){.summary-grid{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Steam 遊戲價格小助手</h1>
+
+    {% if error_message %}
+      <div class="alert-error"><strong>{{ error_message }}</strong></div>
+    {% endif %}
+
+    <div class="search-panel">
+      <form method="POST">
+        <div class="search-grid">
+          <div class="form-group">
+            <label for="query">遊戲名稱 / Steam App ID</label>
+            <input type="text" id="query" name="query" list="games" placeholder="例如: Elden Ring" value="{{ form.query }}">
+            <datalist id="games">
+              {% for game in games %}<option value="{{ game }}">{{ game }}</option>{% endfor %}
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label for="regions">查詢地區（逗號分隔）</label>
+            <input type="text" id="regions" name="regions" value="{{ form.regions }}">
+          </div>
+          <div class="form-group">
+            <label for="min_price">最低價格 (TWD)</label>
+            <input type="number" id="min_price" name="min_price" placeholder="0" value="{{ form.min_price }}">
+          </div>
+          <div class="form-group">
+            <label for="max_price">最高價格 (TWD)</label>
+            <input type="number" id="max_price" name="max_price" placeholder="預算上限" value="{{ form.max_price }}">
+          </div>
+          <button type="submit">搜尋</button>
+        </div>
+      </form>
+    </div>
+
+    {% if result %}
+    <div class="results-section">
+      <h2>{{ result.game_name }}｜各地區價格比較</h2>
+      <div class="summary-grid">
+        <div class="summary-card"><div class="label">成功取得地區</div><div class="value">{{ result.rows|length }}</div></div>
+        <div class="summary-card"><div class="label">最低 TWD</div><div class="value">{% if result.cheapest %}NT$ {{ '%.2f'|format(result.cheapest.twd_price) }}{% else %}—{% endif %}</div></div>
+        <div class="summary-card"><div class="label">台灣價格</div><div class="value">{% if result.taiwan and result.taiwan.twd_price is not none %}NT$ {{ '%.2f'|format(result.taiwan.twd_price) }}{% else %}—{% endif %}</div></div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>#</th><th>地區</th><th>Steam 原價</th><th>折扣</th><th class="text-right">換算 TWD</th><th class="text-right">相對台灣</th><th class="text-center">記錄時間</th></tr></thead>
+          <tbody>
+          {% for row in result.rows %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><span class="badge">{{ row.country_code }}</span> {{ row.country_name }}</td>
+              <td><span class="price-tag">{{ '%.2f'|format(row.local_price) }} {{ row.currency }}</span></td>
+              <td>{{ row.discount_percent }}%</td>
+              <td class="text-right">{% if row.twd_price is not none %}<strong>NT$ {{ '%.2f'|format(row.twd_price) }}</strong>{% else %}—{% endif %}</td>
+              <td class="text-right">{% if row.diff_vs_taiwan is not none %}{{ '%+.1f'|format(row.diff_vs_taiwan) }}%{% else %}—{% endif %}</td>
+              <td class="text-center">{{ row.recorded_at }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="note">TWD 為抓取時匯率換算值；Steam 原始區域價格與換算價格分開保存。</p>
+    </div>
+
+    <div class="results-section">
+      <h2>價格歷史圖表</h2>
+      <div class="chart-box"><canvas id="priceChart"></canvas></div>
+    </div>
+
+    <div class="results-section">
+      <h2>價格歷史</h2>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>時間</th><th>地區</th><th>原價</th><th>TWD</th><th>折扣</th></tr></thead>
+          <tbody>
+          {% for row in history %}
+            <tr><td>{{ row.recorded_at }}</td><td>{{ row.country_code }} {{ row.country_name }}</td><td>{{ '%.2f'|format(row.local_price) }} {{ row.currency }}</td><td>{% if row.twd_price is not none %}NT$ {{ '%.2f'|format(row.twd_price) }}{% else %}—{% endif %}</td><td>{{ row.discount_percent }}%</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const rows={{ history|tojson }};
+      const grouped={};
+      rows.forEach(r=>{if(r.twd_price===null)return;(grouped[r.country_code]??=[]).push(r)});
+      const labels=[...new Set(rows.map(r=>r.recorded_at))];
+      const datasets=Object.entries(grouped).map(([code,arr])=>({label:code,data:labels.map(t=>{const x=arr.find(r=>r.recorded_at===t);return x?Number(x.twd_price):null}),tension:.25,spanGaps:true}));
+      new Chart(document.getElementById('priceChart'),{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{y:{title:{display:true,text:'TWD'}}}}});
+    </script>
+    {% else %}
+    <div class="results-section">
+      <h2>搜尋結果</h2>
+      <div style="text-align:center;color:#8f98a0;padding:40px"><p>請輸入遊戲名稱或 App ID 後按「搜尋」。</p><p>系統會查詢多個 Steam 地區並保存 SQLite 價格歷史。</p></div>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
