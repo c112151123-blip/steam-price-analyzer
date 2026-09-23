@@ -1,5 +1,5 @@
 import concurrent.futures, os, sqlite3, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import requests
 from flask import Flask, render_template, request
@@ -13,6 +13,7 @@ REGIONS={'AR':'阿根廷','AT':'奧地利','AU':'澳洲','BE':'比利時','BR':'
 DEFAULT='US,GB,DE,FR,JP,KR,TW,CN,HK,SG,AU,CA,BR,MX,IN,TR,RU,PL,SE,NO,DK,FI,NL,IT,ES,CH,NZ,MY,TH,ID,PH,ZA,IL,SA'
 DIV={'USD':100,'GBP':100,'EUR':100,'CHF':100,'RUB':100,'PLN':100,'BRL':100,'NOK':100,'IDR':100,'MYR':100,'PHP':100,'SGD':100,'THB':100,'KRW':100,'TRY':100,'UAH':100,'MXN':100,'CAD':100,'AUD':100,'NZD':100,'CNY':100,'INR':100,'CLP':100,'PEN':100,'COP':100,'ZAR':100,'HKD':100,'TWD':100,'SAR':100,'ILS':100,'CZK':100,'DKK':100,'HUF':100,'RON':100,'SEK':100,'VND':100}
 s=requests.Session();s.headers['User-Agent']='SteamRegionalPriceAnalyzer/2.0'
+RECORD_TIMEZONE=timezone(timedelta(hours=8),'Asia/Taipei')
 
 def init_db():
  c=sqlite3.connect(DB);c.execute('''CREATE TABLE IF NOT EXISTS price_history(id INTEGER PRIMARY KEY,app_id TEXT,game_name TEXT,country_code TEXT,country_name TEXT,currency TEXT,local_price REAL,initial_price REAL,discount_percent INTEGER,exchange_rate REAL,twd_price REAL,recorded_at TEXT)''');c.commit();c.close()
@@ -39,7 +40,7 @@ def rates():
 def twd(v,cur,fx): return v if cur=='TWD' else (v/float(fx[cur]) if fx.get(cur) else None)
 
 def collect(app_id,name,codes):
- fx=rates();now=datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S')
+ fx=rates();now=datetime.now(timezone.utc).astimezone(RECORD_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
  with concurrent.futures.ThreadPoolExecutor(max_workers=min(12,len(codes))) as ex: rows=[x for x in ex.map(lambda c:fetch(app_id,c),codes) if x]
  c=sqlite3.connect(DB)
  for r in rows:
