@@ -40,8 +40,10 @@ http://127.0.0.1:8000/api/health
 1. 將此資料夾推送到 GitHub。
 2. 在 Render 建立 **Web Service**，選擇該 GitHub repository。
 3. Build Command 填入 `pip install -r requirements.txt`。
-4. Start Command 填入 `gunicorn app:app`。
+4. Start Command 填入 `gunicorn --bind 0.0.0.0:$PORT app:app`。
 5. 部署完成後使用 Render 提供的 `https://...onrender.com` 網址。
+
+也可以在 Render 選擇 **New > Blueprint**，直接使用本 repository 的 `render.yaml` 設定部署。
 
 本機區域網路測試時，程式會監聽所有網路介面；同一個網路的其他裝置可透過
 `http://你的電腦IP:8000/` 開啟。
