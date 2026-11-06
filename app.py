@@ -16,32 +16,61 @@ s=requests.Session();s.headers['User-Agent']='SteamRegionalPriceAnalyzer/2.0'
 RECORD_TIMEZONE=timezone(timedelta(hours=8),'Asia/Taipei')
 
 def init_db():
- c=sqlite3.connect(DB);c.execute('''CREATE TABLE IF NOT EXISTS price_history(id INTEGER PRIMARY KEY,app_id TEXT,game_name TEXT,country_code TEXT,country_name TEXT,currency TEXT,local_price REAL,initial_price REAL,discount_percent INTEGER,exchange_rate REAL,twd_price REAL,recorded_at TEXT)''');c.commit();c.close()
+ c=sqlite3.connect(DB)
+ c.execute('''CREATE TABLE IF NOT EXISTS price_history(id INTEGER PRIMARY KEY,app_id TEXT,game_name TEXT,country_code TEXT,country_name TEXT,currency TEXT,local_price REAL,initial_price REAL,discount_percent INTEGER,exchange_rate REAL,twd_price REAL,recorded_at TEXT)''')
+ c.execute('CREATE INDEX IF NOT EXISTS idx_price_history_app_country ON price_history(app_id,country_code,id)')
+ c.execute('CREATE INDEX IF NOT EXISTS idx_price_history_app_recorded ON price_history(app_id,recorded_at)')
+ c.commit();c.close()
 
 def amt(raw,cur): return None if raw is None else float(raw)/DIV.get(cur,100)
+
+def get_json(url,params,timeout):
+ try:
+    r=s.get(url,params=params,timeout=timeout);r.raise_for_status();return r.json()
+ except requests.RequestException as e:
+    raise ValueError('外部服務暫時無法使用，請稍後再試') from e
+ except ValueError as e:
+    raise ValueError('外部服務回傳了無法解析的資料') from e
+
+def search_games(q):
+ return get_json(SEARCH,{'term':q,'l':'english','cc':'us'},15).get('items',[])
+
 def resolve(q):
- if q.isdigit():
-  d=s.get(STEAM,params={'appids':q,'cc':'us'},timeout=15).json().get(q)
-  if not d or not d.get('success'): raise ValueError('找不到 Steam App ID')
-  return q,d['data'].get('name',q)
- d=s.get(SEARCH,params={'term':q,'l':'english','cc':'us'},timeout=15).json().get('items',[])
- if not d: raise ValueError(f'找不到遊戲：{q}')
- return str(d[0]['id']),d[0].get('name',q)
+   if q.isdigit():
+      d=get_json(STEAM,{'appids':q,'cc':'us'},15).get(q)
+      if not d or not d.get('success'):
+         raise ValueError('找不到 Steam App ID')
+      return q,d['data'].get('name',q)
+   d=search_games(q)
+   if not d:
+      raise ValueError(f'找不到遊戲：{q}')
+   exact=next((x for x in d if x.get('name','').casefold()==q.casefold()),None)
+   game=exact or d[0]
+   return str(game['id']),game.get('name',q)
 
 def fetch(app_id,cc):
- r=s.get(STEAM,params={'appids':app_id,'cc':cc.lower(),'filters':'price_overview'},timeout=15).json().get(str(app_id))
+ try:
+    r=get_json(STEAM,{'appids':app_id,'cc':cc.lower(),'filters':'price_overview'},15).get(str(app_id))
+ except ValueError:
+    return None
  p=(r or {}).get('data',{}).get('price_overview') if r and r.get('success') else None
  if not p or p.get('final') is None:return None
  cur=p.get('currency');return {'country_code':cc,'country_name':REGIONS[cc],'currency':cur,'local_price':amt(p['final'],cur),'initial_price':amt(p.get('initial'),cur),'discount_percent':int(p.get('discount_percent',0))}
 
 def rates():
- try:return s.get('https://open.er-api.com/v6/latest/TWD',timeout=10).json().get('rates',{})
- except:return {}
+ try:
+    data=get_json('https://open.er-api.com/v6/latest/TWD',{},10)
+    rates=data.get('rates',{})
+    if not rates: raise ValueError('匯率資料為空')
+    return rates
+ except ValueError as e:
+    raise ValueError('匯率服務暫時無法使用，無法完成台幣換算') from e
 def twd(v,cur,fx): return v if cur=='TWD' else (v/float(fx[cur]) if fx.get(cur) else None)
 
 def collect(app_id,name,codes):
  fx=rates();now=datetime.now(timezone.utc).astimezone(RECORD_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
  with concurrent.futures.ThreadPoolExecutor(max_workers=min(12,len(codes))) as ex: rows=[x for x in ex.map(lambda c:fetch(app_id,c),codes) if x]
+ rows=[r for r in rows if r['currency']=='TWD' or fx.get(r['currency'])]
  c=sqlite3.connect(DB)
  for r in rows:
   c.execute('INSERT INTO price_history(app_id,game_name,country_code,country_name,currency,local_price,initial_price,discount_percent,exchange_rate,twd_price,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(app_id,name,r['country_code'],r['country_name'],r['currency'],r['local_price'],r['initial_price'],r['discount_percent'],fx.get(r['currency'],1),twd(r['local_price'],r['currency'],fx),now))
@@ -74,6 +103,14 @@ def index():
 
 @app.get('/api/health')
 def health():return {'status':'ok'}
+@app.get('/api/search')
+def api_search():
+ q=request.args.get('q','').strip()
+ if len(q)<2:return []
+ try:
+   return [{'id':str(x['id']),'name':x.get('name','')} for x in search_games(q)[:10]]
+ except ValueError as e:
+   return {'error':str(e)},502
 @app.get('/api/games/<app_id>/latest')
 def api_latest(app_id):return latest(app_id)
 @app.get('/api/games/<app_id>/history')

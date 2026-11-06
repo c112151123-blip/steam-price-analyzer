@@ -46,6 +46,30 @@
       </form>
     </div>
 
+    <script>
+      const queryInput=document.getElementById('query');
+      const gameOptions=document.getElementById('games');
+      let searchTimer;
+      queryInput.addEventListener('input',()=>{
+        clearTimeout(searchTimer);
+        const query=queryInput.value.trim();
+        if(query.length<2)return;
+        searchTimer=setTimeout(async()=>{
+          try{
+            const response=await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            if(!response.ok)return;
+            const games=await response.json();
+            gameOptions.replaceChildren(...games.map(game=>{
+              const option=document.createElement('option');
+              option.value=game.name;
+              option.label=`${game.name} (App ID: ${game.id})`;
+              return option;
+            }));
+          }catch{}
+        },300);
+      });
+    </script>
+
     {% if result %}
     <div class="results-section">
       <h2>{{ result.game_name }}｜各地區價格比較</h2>
